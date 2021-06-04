@@ -1,13 +1,14 @@
 
 import argparse
-import xml.etree.ElementTree as et
-from xml.dom import minidom
+from lxml import etree
 import re
 import math
 import numpy as np
 
 import bipedal_locomotion_framework.bindings as blf
 
+def print_info(msg):
+    print('\33[104m' + '[offset_updater]' + '\033[0m ' + msg)
 
 def open_polydriver(robot_name, control_board, joints_list):
     param_handler = blf.parameters_handler.StdParametersHandler()
@@ -20,9 +21,9 @@ def open_polydriver(robot_name, control_board, joints_list):
 
     board = blf.robot_interface.construct_remote_control_board_remapper(param_handler)
 
-    bridge = blf.YarpSensorBridge()
+    bridge = blf.robot_interface.YarpSensorBridge()
     bridge.initialize(param_handler)
-    bridge.set_drivers_list([control_board])
+    bridge.set_drivers_list([board])
 
     return board, bridge
 
@@ -37,6 +38,11 @@ def get_offsets(xml_root):
 
     return deltas
 
+def prettify(elem):
+    return etree.tostring(elem, encoding="UTF-8",
+                   xml_declaration=True,
+                   pretty_print=True,
+                   doctype='<!DOCTYPE devices PUBLIC "-//YARP//DTD yarprobotinterface 3.0//EN" "http://www.yarp.it/DTD/yarprobotinterfaceV3.0.dtd">')
 
 def set_offsets(xml_root, offsets):
 
@@ -44,7 +50,7 @@ def set_offsets(xml_root, offsets):
         if node.get('name') == "CALIBRATION":
             for param in node:
                 if param.get('name') == "calibrationDelta":
-                    param.name = np.array2string(offsets)
+                    param.text = ' '.join(format(x, "10.3f") for x in offsets)
 
     return xml_root
 
@@ -53,34 +59,39 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input', type=str, required=True, help='Input xml file')
     parser.add_argument('-o', '--output', type=str, required=True, help='Input xml file')
     parser.add_argument('-b', '--board', type=str, required=True, help='Name of the control board')
-    parser.add_argument('-j', '--joints', type=list, required=True, help='Name of the control board')
+    parser.add_argument('-j', '--joints', type=str, nargs='+', required=True, help='Name of the control board')
     parser.add_argument('-r', '--robot', type=str, required=True, help='Name of the robot')
 
     args = parser.parse_args()
 
-    tree = et.parse(args.input)
+    tree = etree.parse(args.input)
     root = tree.getroot()
     offsets = get_offsets(root)
-
+    
     control_board, sensor_bridge = open_polydriver(args.robot, args.board, args.joints)
 
-    print("Please put the joints in zero configuration.")
-    print("Press enter and I will show you the offset.")
+    print_info("Please put the joints in zero configuration.")
+    print_info("Press enter and I will show you the offset.")
     input()
 
+    assert sensor_bridge.advance() is True
+
     _, joints_values, _ = sensor_bridge.get_joint_positions()
-    print("Offset = " + str(['%.4f' % elem * 180 / math.pi for elem in joints_values]))
+    print_info("Offset = " + str(['%.4f' % elem for elem in joints_values]))
 
-    print("Do you want to add this offset to the  already existing one? [y|n]")
-    var = input()
-    if var != 'y' :
-        print("Offset not changed")
-        exit()
-    else:
-        new_offsets = np.array(offsets) + joints_values * 180 / math.pi
-        root = set_offsets(root, new_offsets)
-        xml_str = minidom.parseString(et.tostring(root, encoding='UTF-8')).toprettyxml(indent='    ')
-        with open(args.output, 'w') as f:
-            f.write(xml_str)
-
-        print("Offset changed")
+    key = ""
+    while key != 'y' or key != 'n':
+        print_info("Do you want to add this offset to the already existing one? [y|n]")
+        var = input()
+        if var == 'n' :
+            print_info("Offset not changed")
+            exit()
+        elif var == 'y' :
+            new_offsets = np.array(offsets) + joints_values * 180 / math.pi
+            root = set_offsets(root, new_offsets)
+        
+            with open(args.output, 'bw') as f:
+                f.write(prettify(root))
+                
+            print_info("Offset changed")
+            exit()
