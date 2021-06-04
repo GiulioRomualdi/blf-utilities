@@ -78,21 +78,23 @@ if __name__ == '__main__':
     assert sensor_bridge.advance() is True
 
     _, joints_values, _ = sensor_bridge.get_joint_positions()
-    print_info("Offset = " + str(['%.4f' % elem for elem in joints_values]))
+    new_offsets = np.array(offsets) + joints_values * 180 / math.pi
+
+    print_info("Joint values = " + str(['%.4f' % joint for joint in joints_values * 180 / math.pi]) + " deg")
+    print_info("previous offset = " + str(['%.4f' % offset for offset in offsets]) + " deg")
+    print_info("new offset = " + str(['%.4f' % offset for offset in new_offsets]) + " deg")
 
     key = ""
-    while key != 'y' or key != 'n':
+    while key != 'y' and key != 'n':
         print_info("Do you want to add this offset to the already existing one? [y|n]")
-        var = input()
-        if var == 'n' :
+        key = input()
+        if key == 'n' :
             print_info("Offset not changed")
-            exit()
-        elif var == 'y' :
-            new_offsets = np.array(offsets) + joints_values * 180 / math.pi
+        elif key == 'y' :
+
             root = set_offsets(root, new_offsets)
         
             with open(args.output, 'bw') as f:
                 f.write(prettify(root))
                 
             print_info("Offset changed")
-            exit()
